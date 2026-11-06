@@ -80,13 +80,15 @@ if [ -n "$ANDROID_SIGNING_KEY" ]; then
 	done
 	# and the bundle
 	cd ../bundle
-	if [ -n "$BUNDLE" ]; then
-		if [ -z "$ANDROID_SIGNING_ALIAS" ]; then
-			echo >&2 "Error: ANDROID_SIGNING_ALIAS must be set to use jarsigner"
-			exit 1
+	if [ -n "$BUNDLE" ] && [ -z "$ANDROID_SIGNING_ALIAS" ]; then
+		echo >&2 "Warning: ANDROID_SIGNING_ALIAS not set, not signing the bundle"
+	elif [ -n "$BUNDLE" ]; then
+		jsargs=()
+		if [ -n "$ANDROID_SIGNING_PASSWORD" ]; then
+			jsargs+=(-storepass:env ANDROID_SIGNING_PASSWORD)
 		fi
 		pushd defaultRelease
-		jarsigner -keystore "${ANDROID_SIGNING_KEY}" -signedjar \
+		jarsigner -keystore "${ANDROID_SIGNING_KEY}" "${jsargs[@]}" -signedjar \
 			app-default-release-signed.aab app-default-release.aab \
 			"${ANDROID_SIGNING_ALIAS}"
 		popd
