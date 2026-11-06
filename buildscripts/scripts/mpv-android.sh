@@ -61,14 +61,19 @@ fi
 if [ -n "$ANDROID_SIGNING_KEY" ]; then
 	cd "app/build/outputs/apk"
 	apksigner=${ANDROID_HOME}/build-tools/${v_sdk_build_tools}/apksigner
+	signargs=(--ks "${ANDROID_SIGNING_KEY}")
+	# allow non-interactive use (e.g. CI) by passing the password via environment
+	if [ -n "$ANDROID_SIGNING_PASSWORD" ]; then
+		signargs+=(--ks-pass env:ANDROID_SIGNING_PASSWORD)
+	fi
 	for v in default allstorage; do
 		pushd $v
 		# sign only the universal debug APK
-		"$apksigner" sign --ks "${ANDROID_SIGNING_KEY}" \
+		"$apksigner" sign "${signargs[@]}" \
 			--in debug/app-$v-universal-debug.apk --out debug/app-$v-universal-debug-signed.apk
 		# but all of the release APKs
 		for apk in release/*-unsigned.apk; do
-			"$apksigner" sign --ks "${ANDROID_SIGNING_KEY}" \
+			"$apksigner" sign "${signargs[@]}" \
 				--in $apk --out ${apk/-unsigned/-signed}
 		done
 		popd
