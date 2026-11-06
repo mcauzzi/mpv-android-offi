@@ -9,10 +9,13 @@ package is.xyz.filepicker;
 import is.xyz.mpv.R;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.TypedValue;
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
 import androidx.loader.app.LoaderManager;
@@ -298,9 +301,71 @@ public abstract class AbstractFilePickerFragment<T> extends Fragment
      */
     @Override
     public void onBindViewHolder(@NonNull DirViewHolder vh, int position, @NonNull T data) {
+        final boolean dir = isDir(data);
         vh.file = data;
-        vh.icon.setVisibility(isDir(data) ? View.VISIBLE : View.GONE);
+        vh.icon.setVisibility(dir ? View.VISIBLE : View.GONE);
         vh.text.setText(getName(data));
+
+        // Highlight the last played file (and the directories leading to it),
+        // dim files that were already watched to the end.
+        final boolean last = dir ? containsLastPlayed(data) : isLastPlayed(data);
+        final boolean watched = !dir && isWatched(data);
+        vh.text.setTypeface(null, last ? Typeface.BOLD : Typeface.NORMAL);
+        if (last && !dir)
+            vh.text.setTextColor(getAccentColor(vh.text.getContext()));
+        else
+            vh.text.setTextColor(vh.defaultTextColors);
+        vh.text.setAlpha(watched ? WATCHED_ALPHA : 1f);
+    }
+
+    private static final float WATCHED_ALPHA = 0.4f;
+    private Integer mAccentColor = null;
+
+    private int getAccentColor(@NonNull Context context) {
+        if (mAccentColor == null) {
+            TypedValue tv = new TypedValue();
+            if (context.getTheme().resolveAttribute(androidx.appcompat.R.attr.colorAccent, tv, true))
+                mAccentColor = tv.data;
+            else
+                mAccentColor = 0xff2196f3;
+        }
+        return mAccentColor;
+    }
+
+    /**
+     * @return whether this file is the one that was played most recently
+     */
+    protected boolean isLastPlayed(@NonNull T file) {
+        return false;
+    }
+
+    /**
+     * @return whether this file was already played to the end
+     */
+    protected boolean isWatched(@NonNull T file) {
+        return false;
+    }
+
+    /**
+     * @return whether the last played file is somewhere inside this directory
+     */
+    protected boolean containsLastPlayed(@NonNull T dir) {
+        return false;
+    }
+
+    /**
+     * Re-read the playback history. Called on every resume.
+     * @return true if anything changed and the list needs to be redrawn
+     */
+    protected boolean reloadHistory() {
+        return false;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (reloadHistory() && mAdapter != null)
+            mAdapter.notifyDataSetChanged();
     }
 
 
@@ -496,6 +561,7 @@ public abstract class AbstractFilePickerFragment<T> extends Fragment
 
         public final View icon;
         public final TextView text;
+        public final ColorStateList defaultTextColors;
         public T file;
 
         public DirViewHolder(View v) {
@@ -504,6 +570,7 @@ public abstract class AbstractFilePickerFragment<T> extends Fragment
             v.setOnLongClickListener(this);
             icon = v.findViewById(R.id.item_icon);
             text = (TextView) v.findViewById(android.R.id.text1);
+            defaultTextColors = text.getTextColors();
         }
 
         /**

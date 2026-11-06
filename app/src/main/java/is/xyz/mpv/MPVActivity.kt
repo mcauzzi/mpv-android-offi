@@ -247,6 +247,13 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver, TouchGesturesObse
     }
 
     private var playbackHasStarted = false
+
+    /** Content URI the player was started with and the path it was resolved to (if different) */
+    private var intentUriAlias: Pair<String, String>? = null
+    /** History keys of the file currently playing */
+    private var currentHistoryKeys: List<String> = emptyList()
+    /** Whether the current file has already been marked as watched */
+    private var currentMarkedWatched = false
     private var onloadCommands = mutableListOf<Array<String>>()
 
     // Activity lifetime
@@ -300,6 +307,11 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver, TouchGesturesObse
             showToast(getString(R.string.error_no_file))
             finishWithResult(RESULT_CANCELED)
             return
+        }
+
+        intent.data?.let {
+            if (it.scheme == "content" && it.toString() != filepath)
+                intentUriAlias = Pair(filepath, it.toString())
         }
 
         player.addObserver(this)
@@ -1980,6 +1992,8 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver, TouchGesturesObse
     override fun eventProperty(property: String, value: Long) {
         if (psc.update(property, value))
             updateMediaSession()
+        if (property == "time-pos")
+            checkWatched()
 
         if (!activityIsForeground) return
         eventUiHandler.post { eventPropertyUi(property, value) }
@@ -2004,12 +2018,17 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver, TouchGesturesObse
 
     override fun event(eventId: Int) {
         if (eventId == MpvEvent.MPV_EVENT_END_FILE) {
+            checkWatched()
+            currentHistoryKeys = emptyList()
             psc.eof()
             updateMediaSession()
         }
 
         if (eventId == MpvEvent.MPV_EVENT_SHUTDOWN)
             finishWithResult(if (playbackHasStarted) RESULT_OK else RESULT_CANCELED)
+
+        if (eventId == MpvEvent.MPV_EVENT_FILE_LOADED)
+            recordLastPlayed()
 
         if (eventId == MpvEvent.MPV_EVENT_START_FILE) {
             val cmds = onloadCommands.toTypedArray()
@@ -2025,6 +2044,35 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver, TouchGesturesObse
 
         if (!activityIsForeground) return
         eventUiHandler.post { eventUi(eventId) }
+    }
+
+    // Playback history (used by the file picker to highlight files)
+
+    private fun recordLastPlayed() {
+        val path = MPVLib.getPropertyString("path")
+        if (path.isNullOrEmpty() || path.startsWith("memory://")) {
+            currentHistoryKeys = emptyList()
+            return
+        }
+        val keys = mutableListOf(path)
+        intentUriAlias?.let { (resolved, uri) ->
+            if (resolved == path)
+                keys.add(uri)
+        }
+        currentHistoryKeys = keys
+        currentMarkedWatched = false
+        PlaybackHistory.setLastPlayed(this, keys)
+    }
+
+    private fun checkWatched() {
+        if (currentMarkedWatched || currentHistoryKeys.isEmpty())
+            return
+        if (psc.duration <= 0 || psc.position < 0)
+            return
+        if (psc.position.toDouble() / psc.duration >= PlaybackHistory.WATCHED_THRESHOLD) {
+            currentMarkedWatched = true
+            PlaybackHistory.markWatched(this, currentHistoryKeys)
+        }
     }
 
     // Gesture handler
